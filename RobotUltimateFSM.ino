@@ -2,20 +2,24 @@
 #include <Wire.h>
 #include <TimerFive.h>
 
-#define BELT_PITCH 2.032 // distance between teeth
-#define NTEETH 90.0 // number of teeth
+// Définitions de constantes pour le robot
+#define BELT_PITCH 2.032 // distance entre les dents de la courroie (en mm)
+#define NTEETH 90.0 // nombre de dents sur la courroie
 
-#define RPM_2_MMS BELT_PITCH*NTEETH/60.0 // conversion of the speed from rpm to mm/s
+// Conversion de la vitesse de tr/min en mm/s
+#define RPM_2_MMS BELT_PITCH * NTEETH / 60.0 
 
-#define VOLTS_2_PWM 255.0/12.0 // conversion voltage to pwm [-255 255]
-#define MAX_VOLTAGE 9 // max allowed voltage in V
+// Conversion de la tension en PWM
+#define VOLTS_2_PWM 255.0 / 12.0 
+#define MAX_VOLTAGE 9 // tension maximale autorisée (en V)
 
-#define Ts 5000 // Sampling rate in µs
+#define Ts 5000 // Taux d'échantillonnage en µs
 
+// Constantes pour le contrôle
 #define Tau 0.02089f
 #define k 54.44f
-float a = -1/Tau;
-float b = k/Tau;
+float a = -1 / Tau;
+float b = k / Tau;
 
 #define l1 382.96f
 #define l2 41257.0f
@@ -23,6 +27,8 @@ float b = k/Tau;
 #define kI -1.3190f
 #define kx 0.0276f
 #define Kb 52.0f
+
+// Variables pour le contrôle
 float e1 = 0;
 float e2 = 0;
 float xi01 = 0;
@@ -33,27 +39,28 @@ float v01 = 0;
 float v02 = 0;
 float d01 = 0;
 float d02 = 0;
-float Te = (Ts/1000)/1000.0f;
+float Te = (Ts / 1000) / 1000.0f; // période d'échantillonnage (en s)
 
-volatile float angle = 0; // actual heading in deg
-volatile float angle_point = 0;
-volatile float speed1 = 0; // actual speed in mm/s
-volatile float speed2 = 0;
-volatile float position1 = 0; // actual position in mm
-volatile float position2 = 0; // actual position in mm
-float u1 = 0; // control signals in V
-float u2 = 0;
-volatile long compTime = 0; // actual computation time of the critical loop
-volatile short overrun = 0;
-volatile float ref1 = 0;
-volatile float ref2 = 0;
-volatile float refAngle = 0;
+// Variables de l'état du robot
+volatile float angle = 0; // cap actuel (en degrés)
+volatile float angle_point = 0; // taux de variation de l'angle (en degrés/s)
+volatile float speed1 = 0; // vitesse actuelle du moteur 1 (en mm/s)
+volatile float speed2 = 0; // vitesse actuelle du moteur 2 (en mm/s)
+volatile float position1 = 0; // position actuelle du moteur 1 (en mm)
+volatile float position2 = 0; // position actuelle du moteur 2 (en mm)
+float u1 = 0; // signal de contrôle pour le moteur 1 (en V)
+float u2 = 0; // signal de contrôle pour le moteur 2 (en V)
+volatile long compTime = 0; // temps de calcul de la boucle critique (en µs)
+volatile short overrun = 0; // indicateur de dépassement
+volatile float ref1 = 0; // référence de vitesse pour le moteur 1
+volatile float ref2 = 0; // référence de vitesse pour le moteur 2
+volatile float refAngle = 0; // référence de cap (en degrés)
 
 // Cible à atteindre (en mm)
-const float targetX = 2000; // distance sur l'axe X
-const float targetY = 2000; // distance sur l'axe Y
+const float targetX = 2000; // distance cible sur l'axe X (en mm)
+const float targetY = 2000; // distance cible sur l'axe Y (en mm)
 
-// Vitesse de référence (mm/s)
+// Vitesse de référence (en mm/s)
 float vxref = 0;
 float vyref = 0;
 
@@ -65,14 +72,12 @@ float y = 0;
 float vxref_pres = 0;
 float vyref_pres = 0;
 
-MeGyro gyro; // gyroscope object instanciation
-MeEncoderOnBoard Encoder_1(SLOT1); // motor with encoder object instanciation
-MeEncoderOnBoard Encoder_2(SLOT2);
+// Instanciation des objets gyroscope et encodeurs
+MeGyro gyro; // instanciation de l'objet gyroscope
+MeEncoderOnBoard Encoder_1(SLOT1); // instanciation de l'objet encodeur pour le moteur 1
+MeEncoderOnBoard Encoder_2(SLOT2); // instanciation de l'objet encodeur pour le moteur 2
 
-/*
-
-routine that is called every 5ms by the ISR routine
-*/
+// Routine appelée toutes les 5ms par la routine ISR
 void Update5ms()
 {
     UpdateSensors();
@@ -80,6 +85,7 @@ void Update5ms()
     UpdateActuators();
 }
 
+// Fonction pour limiter la valeur du signal de contrôle
 float calcU(float u) {
     if (u > 9.0f)
         return 9.0f;
@@ -88,46 +94,50 @@ float calcU(float u) {
     return u;
 }
 
+// Mise à jour des capteurs
 void UpdateSensors(){
     float angle_anc = angle;
-    gyro.update(); // update the gyroscope state
-    angle = gyro.getAngleZ(); // get the estimated heading in deg
-    angle_point = (angle - angle_anc) / Te;
-    Encoder_1.loop(); // update the encoders state
-    Encoder_2.loop();
+    gyro.update(); // mise à jour de l'état du gyroscope
+    angle = gyro.getAngleZ(); // obtention du cap estimé (en degrés)
+    angle_point = (angle - angle_anc) / Te; // calcul du taux de variation de l'angle
+    Encoder_1.loop(); // mise à jour de l'état de l'encodeur 1
+    Encoder_2.loop(); // mise à jour de l'état de l'encodeur 2
 
-    speed1 = Encoder_1.getCurrentSpeed() * RPM_2_MMS; // compute the speed in mm/s
-    speed2 = Encoder_2.getCurrentSpeed() * RPM_2_MMS;
+    speed1 = Encoder_1.getCurrentSpeed() * RPM_2_MMS; // calcul de la vitesse du moteur 1 (en mm/s)
+    speed2 = Encoder_2.getCurrentSpeed() * RPM_2_MMS; // calcul de la vitesse du moteur 2 (en mm/s)
 
-    position1 = Encoder_1.getCurPos() * BELT_PITCH * NTEETH / 360.0f; // compute the position in mm
-    position2 = Encoder_2.getCurPos() * BELT_PITCH * NTEETH / 360.0f;
+    position1 = Encoder_1.getCurPos() * BELT_PITCH * NTEETH / 360.0f; // calcul de la position du moteur 1 (en mm)
+    position2 = Encoder_2.getCurPos() * BELT_PITCH * NTEETH / 360.0f; // calcul de la position du moteur 2 (en mm)
 }
 
+// Mise à jour du contrôle
 void UpdateControl()
 {
     // Mettre à jour les vitesses de référence pour atteindre la cible
     vxref_pres = vxref;
     vyref_pres = vyref;
 
+    // Calcul des nouvelles vitesses de référence
     vxref = 0.0333 * (targetX - x);
     vyref = 0.0333 * (targetY - y);
 
-    x += (vxref + vxref_pres)/2 * Te;
-    y += (vyref + vyref_pres)/2 * Te;
+    // Mise à jour des positions actuelles
+    x += (vxref + vxref_pres) / 2 * Te;
+    y += (vyref + vyref_pres) / 2 * Te;
 
     float l = 175 / 2 * 85 / 100;
     float L = 124.5f;
     float refSpeedChenille = cos(angle * PI / 180) * vxref + sin(angle * PI / 180) * vyref;
     refAngle = (-sin(angle * PI / 180) / L) * vxref + (cos(angle * PI / 180) / L) * vyref;
 
-    // calcul diff chenille
+    // Calcul de la différence de vitesse pour les chenilles
     float refSpeedDifference = (refAngle) * L;
 
-    // maj ref moteur
+    // Mise à jour des références de vitesse pour les moteurs
     ref1 = refSpeedChenille + refSpeedDifference;
     ref2 = refSpeedChenille - refSpeedDifference;
 
-    // Update FSM for motor 1
+    // Mise à jour de la machine d'état pour le moteur 1
     e1 = position1 - d01;
     float d01temp = d01 + Te * (v01 + e1 * l1);
     float v01temp = v01 + Te * (a * v01 + b * u1 + b * p01 + l2 * e1);
@@ -137,7 +147,7 @@ void UpdateControl()
     v01 = v01temp;
     p01 = p01temp;
 
-    // Update FSM for motor 2
+    // Mise à jour de la machine d'état pour le moteur 2
     e2 = position2 - d02;
     float d02temp = d02 + Te * (v02 + e2 * l1);
     float v02temp = v02 + Te * (a * v02 + b * u2 + b * p02 + l2 * e2);
@@ -147,7 +157,7 @@ void UpdateControl()
     v02 = v02temp;
     p02 = p02temp;
 
-    // Calculate control signals
+    // Calcul des signaux de contrôle
     float xi01temp = xi01 + Te * (-ref1 - v01 + Kb * (calcU(u1) - u1));
     float u10 = -kI * xi01 - kx * v01;
 
@@ -160,23 +170,24 @@ void UpdateControl()
     u2 = u20;
 }
 
+// Mise à jour des actionneurs
 void UpdateActuators(){
-    setMotorsVoltage(u1, u2); // set the voltages
+    setMotorsVoltage(u1, u2); // réglage des tensions des moteurs
 }
 
 /*
 
-routine that is called every 5ms by the timer 5
+routine appelée toutes les 5ms par le timer 5
 */
 void Timer5ISR(){
-    static char executing = 0; // set to 1 when the update function is running
+    static char executing = 0; // indicateur d'exécution
     if(executing) {
         overrun = 1;
         return;
     }
-    else executing = 1; // if already running => overrun
+    else executing = 1; // si déjà en cours d'exécution => dépassement
 
-    interrupts(); // enable the interrupts during the execution of this loop
+    interrupts(); // activer les interruptions pendant l'exécution de cette boucle
     long startTime = micros();
 
     Update5ms();
@@ -187,7 +198,7 @@ void Timer5ISR(){
 
 /*
 
-interruption routine for encoder pulse counting (quadrature)
+routine d'interruption pour le comptage des impulsions de l'encodeur (quadrature)
 */
 void isr_process_encoder1(void)
 {
@@ -215,7 +226,7 @@ void isr_process_encoder2(void)
 
 /*
 
-Setup the motors with the reduction ratio and number of pulses per turn
+Configuration des moteurs avec le rapport de réduction et le nombre d'impulsions par tour
 */
 void setupMotors(){
     Encoder_1.setPulse(8);
@@ -225,7 +236,7 @@ void setupMotors(){
 
     attachInterrupt(Encoder_1.getIntNum(), isr_process_encoder1, RISING);
     attachInterrupt(Encoder_2.getIntNum(), isr_process_encoder2, RISING);
-    // Set PWM 8KHz
+    // Réglage PWM à 8KHz
     TCCR1A = _BV(WGM10);
     TCCR1B = _BV(CS11) | _BV(WGM12);
 
@@ -235,7 +246,7 @@ void setupMotors(){
 
 /*
 
-Sets the voltage to the motor. Limited by MAX_VOLTAGE
+Réglage de la tension des moteurs. Limité par MAX_VOLTAGE
 */
 void setMotorsVoltage(float voltage1, float voltage2){
     Encoder_1.setMotorPwm(constrain(voltage1, -MAX_VOLTAGE, MAX_VOLTAGE) * VOLTS_2_PWM);
@@ -255,7 +266,7 @@ void setup()
 
 void loop()
 {
-    noInterrupts();
+    noInterrupts(); // désactiver les interruptions
     float angleCopy = angle;
     float angle_pointCopy = angle_point;
     float speed1Copy = speed1;
@@ -263,8 +274,9 @@ void loop()
     float position1Copy = position1;
     float position2Copy = position2;
     long compTimeCopy = compTime;
-    interrupts();
+    interrupts(); // réactiver les interruptions
 
+    // Affichage des données de diagnostic
     Serial.print(" compTime: ");
     Serial.print(compTimeCopy);
 
@@ -297,5 +309,5 @@ void loop()
 
     Serial.println();
 
-    delay(10);
+    delay(10); // délai pour éviter une surcharge du port série
 }
