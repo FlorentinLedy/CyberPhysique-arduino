@@ -40,9 +40,7 @@ volatile float angle_point = 0;
 volatile float speed1 = 0; // actual speed in mm/s
 volatile float speed2 = 0;
 volatile float position1 = 0; // actual position in mm
-volatile float position2 = 0;
-volatile float refX = 0; // actual reference speed from serial
-volatile float refY = 0; // actual reference angular speed from serial
+volatile float position2 = 0; // actual position in mm
 float u1 = 0; // control signals in V
 float u2 = 0;
 volatile long compTime = 0; // actual computation time of the critical loop
@@ -50,6 +48,22 @@ volatile short overrun = 0;
 volatile float ref1 = 0;
 volatile float ref2 = 0;
 volatile float refAngle = 0;
+
+// Cible à atteindre (en mm)
+const float targetX = 1000; // distance sur l'axe X
+const float targetY = 1000; // distance sur l'axe Y
+
+// Vitesse de référence (mm/s)
+float vxref = 0;
+float vyref = 0;
+
+// Position actuelle (en mm)
+float x = 0;
+float y = 0;
+
+// Vitesse précédente
+float vxref_pres = 0;
+float vyref_pres = 0;
 
 MeGyro gyro; // gyroscope object instanciation
 MeEncoderOnBoard Encoder_1(SLOT1); // motor with encoder object instanciation
@@ -75,66 +89,77 @@ float calcU(float u) {
 }
 
 void UpdateSensors(){
-    float angle_anc = angle ;
+    float angle_anc = angle;
     gyro.update(); // update the gyroscope state
     angle = gyro.getAngleZ(); // get the estimated heading in deg
-    angle_point = (angle - angle_anc)/Te ;
+    angle_point = (angle - angle_anc) / Te;
     Encoder_1.loop(); // update the encoders state
     Encoder_2.loop();
 
-    speed1 = Encoder_1.getCurrentSpeed()*RPM_2_MMS; // compute the speed in mm/s
-    speed2 = Encoder_2.getCurrentSpeed()*RPM_2_MMS;
+    speed1 = Encoder_1.getCurrentSpeed() * RPM_2_MMS; // compute the speed in mm/s
+    speed2 = Encoder_2.getCurrentSpeed() * RPM_2_MMS;
 
-    position1 = Encoder_1.getCurPos()*BELT_PITCH*NTEETH/360.0f; // compute the position in mm
-    position2 = Encoder_2.getCurPos()*BELT_PITCH*NTEETH/360.0f;
-}
-
-void rotate(){
-  //ref1=-(refY-(1*((refX * PI)/180 * 124.5f)));
-  //ref2=refY+(1*((refX * PI)/180 * 124.5f));
-  float l = 175 / 2 * 85 / 100;
-  float L = 124.5f;
-  float refSpeedCh = cos(angle * PI / 180) * refX + sin(angle * PI / 180) * refY;
-  refAngle = (-sin(angle * PI / 180) / L) * refX + (cos(angle * PI / 180) / L) * refY;
-
-  // Diff entre les chenilles
-  float refSpeedDiff = (refAngle) * L;
-
-  // maj ref moteur
-  ref1 = refSpeedCh - refSpeedDiff;
-  ref2 = refSpeedCh + refSpeedDiff;
+    position1 = Encoder_1.getCurPos() * BELT_PITCH * NTEETH / 360.0f; // compute the position in mm
+    position2 = Encoder_2.getCurPos() * BELT_PITCH * NTEETH / 360.0f;
 }
 
 void UpdateControl()
 {
-    // Update FSM
+    // Mettre à jour les vitesses de référence pour atteindre la cible
+    vxref_pres = vxref;
+    vyref_pres = vyref;
+
+    vxref = 0.0333 * (targetX - x);
+    vyref = 0.0333 * (targetY - y);
+
+    if (fabs(targetX - x) < 1.0 && fabs(targetY - y) < 1.0) {
+        vxref = 0;
+        vyref = 0;
+        ref1 = 0;
+        ref2 = 0;
+        return; 
+    }
+
+    x += (vxref - vxref_pres) * Te;
+    y += (vyref - vyref_pres) * Te;
+
+    float l = 175 / 2 * 85 / 100;
+    float L = 140;
+    float refSpeedChenille = cos(angle * PI / 180) * vxref + sin(angle * PI / 180) * vyref;
+    refAngle = (-sin(angle * PI / 180) / L) * vxref + (cos(angle * PI / 180) / L) * vyref;
+
+    // calcul diff chenille
+    float refSpeedDifference = (refAngle) * L;
+
+    // maj ref moteur
+    ref1 = refSpeedChenille + refSpeedDifference;
+    ref2 = refSpeedChenille - refSpeedDifference;
+
+    // Update FSM for motor 1
     e1 = position1 - d01;
     float d01temp = d01 + Te * (v01 + e1 * l1);
-    float v01temp = v01 + Te * (a * v01 + b * u1 + b * p01 + l2 * e1 );
+    float v01temp = v01 + Te * (a * v01 + b * u1 + b * p01 + l2 * e1);
     float p01temp = p01 + Te * l3 * e1;
-
-    e2 = position2 - d02;
-    float d02temp = d02 + Te * (v02 + e2 * l1);
-    float v02temp = v02 + Te * (a * v02 + b * u2 + b * p02 + l2 * e2 );
-    float p02temp = p02 + Te * l3 * e2;
 
     d01 = d01temp;
     v01 = v01temp;
     p01 = p01temp;
 
+    // Update FSM for motor 2
+    e2 = position2 - d02;
+    float d02temp = d02 + Te * (v02 + e2 * l1);
+    float v02temp = v02 + Te * (a * v02 + b * u2 + b * p02 + l2 * e2);
+    float p02temp = p02 + Te * l3 * e2;
+
     d02 = d02temp;
     v02 = v02temp;
     p02 = p02temp;
 
-    //float refSpeedDiff = (refY * PI)/180 * 124.5f; // Compute X based on refY
-    //ref1 = - refSpeedDiff;
-    //float ref2 = refSpeedDiff;
-    rotate();
-
-    float xi01temp = xi01 + Te * (- ref1 - v01 + Kb*(calcU(u1)-u1));
+    // Calculate control signals
+    float xi01temp = xi01 + Te * (-ref1 - v01 + Kb * (calcU(u1) - u1));
     float u10 = -kI * xi01 - kx * v01;
 
-    float xi02temp = xi02 + Te * (ref2 - v02 + Kb*(calcU(u2)-u2));
+    float xi02temp = xi02 + Te * (-ref2 - v02 + Kb * (calcU(u2) - u2));
     float u20 = -kI * xi02 - kx * v02;
 
     xi01 = xi01temp;
@@ -164,7 +189,7 @@ void Timer5ISR(){
 
     Update5ms();
 
-    compTime = micros()-startTime;
+    compTime = micros() - startTime;
     executing = 0;
 }
 
@@ -180,7 +205,7 @@ void isr_process_encoder1(void)
     }
     else
     {
-        Encoder_1.pulsePosPlus();;
+        Encoder_1.pulsePosPlus();
     }
 }
 
@@ -220,9 +245,9 @@ void setupMotors(){
 
 Sets the voltage to the motor. Limited by MAX_VOLTAGE
 */
-void setMotorsVoltage(float voltage1,float voltage2){
-    Encoder_1.setMotorPwm(constrain(voltage1,-MAX_VOLTAGE,MAX_VOLTAGE)*VOLTS_2_PWM);
-    Encoder_2.setMotorPwm(constrain(voltage2,-MAX_VOLTAGE,MAX_VOLTAGE)*VOLTS_2_PWM);
+void setMotorsVoltage(float voltage1, float voltage2){
+    Encoder_1.setMotorPwm(constrain(voltage1, -MAX_VOLTAGE, MAX_VOLTAGE) * VOLTS_2_PWM);
+    Encoder_2.setMotorPwm(constrain(voltage2, -MAX_VOLTAGE, MAX_VOLTAGE) * VOLTS_2_PWM);
 }
 
 void setup()
@@ -230,7 +255,7 @@ void setup()
     Serial.begin(115200);
     Serial.setTimeout(1);
     gyro.begin();
-    Wire.setClock(400000);
+    Wire.setClock(100000);
     setupMotors();
     Timer5.initialize(Ts);
     Timer5.attachInterrupt(Timer5ISR);
@@ -238,57 +263,47 @@ void setup()
 
 void loop()
 {
-    static float lastrefX = 0;
-    static float lastrefY = 0;
-
     noInterrupts();
-    refX = lastrefX;
-    refY = lastrefY;
     float angleCopy = angle;
     float angle_pointCopy = angle_point;
-        float speed1Copy = speed1;
+    float speed1Copy = speed1;
     float speed2Copy = speed2;
     float position1Copy = position1;
     float position2Copy = position2;
     long compTimeCopy = compTime;
     interrupts();
 
-    // Serial.read();
-    // Serial.print(" compTime: ");
-    // Serial.print(compTimeCopy);
+    Serial.print(" compTime: ");
+    Serial.print(compTimeCopy);
 
-    // Serial.print(" overrun: ");
-    // Serial.print(overrun);
+    Serial.print(" overrun: ");
+    Serial.print(overrun);
 
-    // Serial.print(" speed1: ");
-    // Serial.print(speed1Copy,2);
+    Serial.print(" speed1: ");
+    Serial.print(speed1Copy, 2);
 
-    // Serial.print(" speed2: ");
-    // Serial.print(speed2Copy,2);
+    Serial.print(" speed2: ");
+    Serial.print(speed2Copy, 2);
 
-    // Serial.print(" position1: ");
-    // Serial.print(position1Copy,2);
+    Serial.print(" position1: ");
+    Serial.print(position1Copy, 2);
 
-    // Serial.print(" position2: ");
-    // Serial.print(position2Copy,2);
+    Serial.print(" position2: ");
+    Serial.print(position2Copy, 2);
 
-    // Serial.print(" angle: ");
-    // Serial.print(angleCopy,2);
+    Serial.print(" angle: ");
+    Serial.print(angleCopy, 2);
 
-    //Serial.print(" angle_point: ");
-    Serial.print(angle_pointCopy,2);
+    Serial.print(" angle_point: ");
+    Serial.print(angle_pointCopy, 2);
 
-    // Serial.print(" refX: ");
-    // Serial.print(refX,2);
+    Serial.print(" targetX: ");
+    Serial.print(targetX, 2);
 
-    // Serial.print(" refY: ");
-    // Serial.print(refY,2);
+    Serial.print(" targetY: ");
+    Serial.print(targetY, 2);
 
     Serial.println();
 
-    if(Serial.available()){
-        lastrefX = Serial.parseFloat();
-        lastrefY = Serial.parseFloat();
-    }
     delay(10);
 }
