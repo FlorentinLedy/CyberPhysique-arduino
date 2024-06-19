@@ -50,8 +50,8 @@ volatile float ref2 = 0;
 volatile float refAngle = 0;
 
 // Cible à atteindre (en mm)
-const float targetX = 1000; // distance sur l'axe X
-const float targetY = 1000; // distance sur l'axe Y
+const float targetX = 2000; // distance sur l'axe X
+const float targetY = 2000; // distance sur l'axe Y
 
 // Vitesse de référence (mm/s)
 float vxref = 0;
@@ -112,19 +112,11 @@ void UpdateControl()
     vxref = 0.0333 * (targetX - x);
     vyref = 0.0333 * (targetY - y);
 
-    if (fabs(targetX - x) < 1.0 && fabs(targetY - y) < 1.0) {
-        vxref = 0;
-        vyref = 0;
-        ref1 = 0;
-        ref2 = 0;
-        return; 
-    }
-
-    x += (vxref - vxref_pres) * Te;
-    y += (vyref - vyref_pres) * Te;
+    x += (vxref + vxref_pres)/2 * Te;
+    y += (vyref + vyref_pres)/2 * Te;
 
     float l = 175 / 2 * 85 / 100;
-    float L = 140;
+    float L = 124.5f;
     float refSpeedChenille = cos(angle * PI / 180) * vxref + sin(angle * PI / 180) * vyref;
     refAngle = (-sin(angle * PI / 180) / L) * vxref + (cos(angle * PI / 180) / L) * vyref;
 
