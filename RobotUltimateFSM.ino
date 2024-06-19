@@ -41,12 +41,14 @@ volatile float speed1 = 0; // actual speed in mm/s
 volatile float speed2 = 0;
 volatile float position1 = 0; // actual position in mm
 volatile float position2 = 0;
-volatile float ref1 = 0; // actual reference speed from serial
+volatile float refVitesse = 0; // actual reference speed from serial
 volatile float refAngle = 0; // actual reference angular speed from serial
 float u1 = 0; // control signals in V
 float u2 = 0;
 volatile long compTime = 0; // actual computation time of the critical loop
 volatile short overrun = 0;
+volatile float ref1 = 0;
+volatile float ref2 = 0;
 
 MeGyro gyro; // gyroscope object instanciation
 MeEncoderOnBoard Encoder_1(SLOT1); // motor with encoder object instanciation
@@ -86,6 +88,12 @@ void UpdateSensors(){
     position2 = Encoder_2.getCurPos()*BELT_PITCH*NTEETH/360.0f;
 }
 
+void rotate(){
+  //matrice T1
+  ref1=-(refAngle-(1*((refVitesse * PI)/180 * 124.5f)));
+  ref2=refAngle+(1*((refVitesse * PI)/180 * 124.5f));
+}
+
 void UpdateControl()
 {
     // Update FSM
@@ -107,9 +115,10 @@ void UpdateControl()
     v02 = v02temp;
     p02 = p02temp;
 
-    float refSpeedDifference = (refAngle * PI)/180 * 124.5f; // Compute X based on refAngle
-    ref1 = - refSpeedDifference;
-    float ref2 = refSpeedDifference;
+    //float refSpeedDifference = (refAngle * PI)/180 * 124.5f; // Compute X based on refAngle
+    //ref1 = - refSpeedDifference;
+    //float ref2 = refSpeedDifference;
+    rotate();
 
     float xi01temp = xi01 + Te * (- ref1 - v01 + Kb*(calcU(u1)-u1));
     float u10 = -kI * xi01 - kx * v01;
@@ -218,11 +227,11 @@ void setup()
 
 void loop()
 {
-    static float lastRef1 = 0;
+    static float lastrefVitesse = 0;
     static float lastRefAngle = 0;
 
     noInterrupts();
-    ref1 = lastRef1;
+    refVitesse = lastrefVitesse;
     refAngle = lastRefAngle;
     float angleCopy = angle;
     float angle_pointCopy = angle_point;
@@ -258,8 +267,8 @@ void loop()
     //Serial.print(" angle_point: ");
     Serial.print(angle_pointCopy,2);
 
-    // Serial.print(" ref1: ");
-    // Serial.print(ref1,2);
+    // Serial.print(" refVitesse: ");
+    // Serial.print(refVitesse,2);
 
     // Serial.print(" refAngle: ");
     // Serial.print(refAngle,2);
@@ -267,7 +276,7 @@ void loop()
     Serial.println();
 
     if(Serial.available()){
-        lastRef1 = Serial.parseFloat();
+        lastrefVitesse = Serial.parseFloat();
         lastRefAngle = Serial.parseFloat();
     }
     delay(10);
