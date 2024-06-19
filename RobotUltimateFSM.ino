@@ -41,14 +41,15 @@ volatile float speed1 = 0; // actual speed in mm/s
 volatile float speed2 = 0;
 volatile float position1 = 0; // actual position in mm
 volatile float position2 = 0;
-volatile float refVitesse = 0; // actual reference speed from serial
-volatile float refAngle = 0; // actual reference angular speed from serial
+volatile float refX = 0; // actual reference speed from serial
+volatile float refY = 0; // actual reference angular speed from serial
 float u1 = 0; // control signals in V
 float u2 = 0;
 volatile long compTime = 0; // actual computation time of the critical loop
 volatile short overrun = 0;
 volatile float ref1 = 0;
 volatile float ref2 = 0;
+volatile float refAngle = 0;
 
 MeGyro gyro; // gyroscope object instanciation
 MeEncoderOnBoard Encoder_1(SLOT1); // motor with encoder object instanciation
@@ -89,9 +90,19 @@ void UpdateSensors(){
 }
 
 void rotate(){
-  //matrice T1
-  ref1=-(refAngle-(1*((refVitesse * PI)/180 * 124.5f)));
-  ref2=refAngle+(1*((refVitesse * PI)/180 * 124.5f));
+  //ref1=-(refY-(1*((refX * PI)/180 * 124.5f)));
+  //ref2=refY+(1*((refX * PI)/180 * 124.5f));
+  float l = 175 / 2 * 85 / 100;
+  float L = 124.5f;
+  float refSpeedCh = cos(angle * PI / 180) * refX + sin(angle * PI / 180) * refY;
+  refAngle = (-sin(angle * PI / 180) / L) * refX + (cos(angle * PI / 180) / L) * refY;
+
+  // Diff entre les chenilles
+  float refSpeedDiff = (refAngle) * L;
+
+  // maj ref moteur
+  ref1 = refSpeedCh - refSpeedDiff;
+  ref2 = refSpeedCh + refSpeedDiff;
 }
 
 void UpdateControl()
@@ -115,9 +126,9 @@ void UpdateControl()
     v02 = v02temp;
     p02 = p02temp;
 
-    //float refSpeedDifference = (refAngle * PI)/180 * 124.5f; // Compute X based on refAngle
-    //ref1 = - refSpeedDifference;
-    //float ref2 = refSpeedDifference;
+    //float refSpeedDiff = (refY * PI)/180 * 124.5f; // Compute X based on refY
+    //ref1 = - refSpeedDiff;
+    //float ref2 = refSpeedDiff;
     rotate();
 
     float xi01temp = xi01 + Te * (- ref1 - v01 + Kb*(calcU(u1)-u1));
@@ -227,12 +238,12 @@ void setup()
 
 void loop()
 {
-    static float lastrefVitesse = 0;
-    static float lastRefAngle = 0;
+    static float lastrefX = 0;
+    static float lastrefY = 0;
 
     noInterrupts();
-    refVitesse = lastrefVitesse;
-    refAngle = lastRefAngle;
+    refX = lastrefX;
+    refY = lastrefY;
     float angleCopy = angle;
     float angle_pointCopy = angle_point;
         float speed1Copy = speed1;
@@ -267,17 +278,17 @@ void loop()
     //Serial.print(" angle_point: ");
     Serial.print(angle_pointCopy,2);
 
-    // Serial.print(" refVitesse: ");
-    // Serial.print(refVitesse,2);
+    // Serial.print(" refX: ");
+    // Serial.print(refX,2);
 
-    // Serial.print(" refAngle: ");
-    // Serial.print(refAngle,2);
+    // Serial.print(" refY: ");
+    // Serial.print(refY,2);
 
     Serial.println();
 
     if(Serial.available()){
-        lastrefVitesse = Serial.parseFloat();
-        lastRefAngle = Serial.parseFloat();
+        lastrefX = Serial.parseFloat();
+        lastrefY = Serial.parseFloat();
     }
     delay(10);
 }
